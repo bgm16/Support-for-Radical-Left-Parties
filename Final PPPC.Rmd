@@ -1,0 +1,339 @@
+---
+title: "FINAL PP&PC Paper"
+author: "Blanca & Yasmeen"
+date: '2024-11-28'
+output: github_document
+---
+
+# Loading data
+
+```{r}
+library(readr)
+
+ESS9 <- read_csv("ESS9e03_2.csv")
+ESS10 <- read_csv("is this different ESS10.csv")
+ESS11 <- read_csv("ESS11.csv")
+CHES <- read_csv("1999-2019_CHES_dataset_means(v3).csv")
+```
+
+# Data wrangling (prior to analysis)
+
+```{r}
+library(dplyr)
+
+ESS11 <- ESS11 |> rename(ipeqopt = ipeqopta)
+
+# Combining both datasets
+ess_combined <- bind_rows(ESS9, ESS10, ESS11)
+
+# Filter out rows that contain missing values in any column of interest
+ess_combined <- ess_combined |>
+  filter (
+    !gndr %in% 9,
+    !domicil %in% c(7, 8, 9),
+    !hinctnta %in%  c(77, 88, 99),
+    !rlgatnd %in% c(77, 88, 99),
+    !eduyrs %in% c(77, 88, 99),
+    !agea %in% 999,
+    !gincdif %in% c(7, 8, 9),
+    !imueclt %in% c(77, 88, 99),
+    !ipeqopt %in%  c(7, 8, 9, 66, 77, 88, 99),
+    !trstprt %in% c(77, 88, 99),
+    !trstplt %in% c(77, 88, 99),
+    !trstlgl %in% c(77, 88, 99),
+    !trstplc %in% c(77, 88, 99),
+    !trstprl %in% c(77, 88, 99),
+    !trstep %in% c(77, 88, 99),
+    !trstun %in% c(77, 88, 99),
+    !stfgov %in% c(77, 88, 99),
+    !stfeco %in% c(77, 88, 99)
+  )
+
+# reversing support for redistribution, equality & religion
+ess_combined <- ess_combined |> mutate (
+    redistribution =  6 - gincdif,
+    equality =  7 - ipeqopt,
+    religion = 7 - rlgatnd
+    )
+```
+
+## Factor analysis for H1 and H2 variables
+
+```{r}
+library(psych)
+library(scales)
+
+
+# H1 (ideology)
+variables_H1 <- ess_combined[, c("redistribution", "imueclt", "equality")]
+variables_H1$gincdif <- scales::rescale(variables_H1$gincdif, to = c(0, 1))
+variables_H1$imueclt <- scales::rescale(variables_H1$imueclt, to = c(0, 1))
+variables_H1$ipeqopt <- scales::rescale(variables_H1$ipeqopt, to = c(0, 1))
+
+fa_resultH1 <- fa(variables_H1, nfactors = 1, rotate = "none", fm = "ml")
+factor_scoresH1 <- fa_resultH1$scores
+
+# integrate
+ess_combined$ideology <- factor_scoresH1
+
+# H2 (trust)
+variables_H2 <- ess_combined[, c("trstplt", "trstprt", "trstlgl", "trstplc", "trstep", "trstun", "trstprl")]
+variables_H2$trstplt <- scales::rescale(variables_H2$trstplt, to = c(0, 1))
+variables_H2$trstprt <- scales::rescale(variables_H2$trstprt, to = c(0, 1))
+variables_H2$trstlgl <- scales::rescale(variables_H2$trstlgl, to = c(0, 1))
+variables_H2$trstplc <- scales::rescale(variables_H2$trstplc, to = c(0, 1))
+variables_H2$trstep <- scales::rescale(variables_H2$trstep, to = c(0, 1))
+variables_H2$trstun <- scales::rescale(variables_H2$trstun, to = c(0, 1))
+variables_H2$trstprl <- scales::rescale(variables_H2$trstprl, to = c(0, 1))
+
+fa_resultH2 <- fa(variables_H2, nfactors = 1, rotate = "none", fm = "ml")
+factor_scoresH2 <- fa_resultH2$scores
+
+#integrate
+ess_combined$trust <- factor_scoresH2
+
+ess_combined$ideology <- scales::rescale(ess_combined$ideology, to = c(0, 5))
+ess_combined$trust <- scales::rescale(ess_combined$trust, to = c(0, 5))
+ess_combined$stfgov <- scales::rescale(ess_combined$stfgov, to = c(0, 5))
+ess_combined$stfeco <- scales::rescale(ess_combined$stfeco, to = c(0, 5))
+
+
+correlation <- cor(ess_combined$stfgov, ess_combined$stfeco)
+print(correlation)
+
+```
+
+## Dependent variable: Wrangling with CHES to select only radical left parties in the last measurement year (2019).
+
+```{r}
+ches_selected <- CHES |> select (country, year, family, party, party_id
+                                     )
+
+ches_filtered <- ches_selected |> filter (year %in% 2019,
+                                          family %in% 6)
+write.csv(ches_filtered, file = "new_CHES_output.csv", row.names = TRUE)
+
+```
+
+After some desk research, we combine both datasets to code voters of the radical left in the ESS dataset.
+
+```{r}
+
+ess_combined1 <- ess_combined |>
+  mutate(
+    vote_left = case_when(
+      # Wave 11
+      (essround == 11 & prtvtdat == 6) ~ 1,
+      (essround == 11 & prtvtebe == 12) ~ 1,
+      (essround == 11 & prtvtchr == 5) ~ 1,
+      (essround == 11 & prtvtccy == 4) ~ 1,
+      (essround == 11 & prtvtges == 4) ~ 1,
+      (essround == 11 & prtvtffi == 7) ~ 1,
+      (essround == 11 & prtvtegr %in% c(3, 11, 9, 2, 4)) ~ 1,
+      (essround == 11 & prtvthhu == 4) ~ 1,
+      (essround == 11 & prtvthch == 12) ~ 1,
+      (essround == 11 & prtvteis == 9) ~ 1,
+      (essround == 11 & prtvteie %in% c(8, 10)) ~ 1,
+      (essround == 11 & prtvteit ==  10) ~ 1,
+      (essround == 11 & prtvtinl == 4) ~ 1,
+      (essround == 11 & prtvtcno == 1) ~ 1,
+      (essround == 11 & prtvtfpl == 4) ~ 1,
+      (essround == 11 & prtvtept %in% c(14, 3)) ~ 1,
+      (essround == 11 & prtvtgsi == 4) ~ 1,
+      (essround == 11 & prtvtdse== 8) ~ 1,
+      (essround == 11 & prtvthch == 12) ~ 1,
+      
+      # Wave 10
+      (essround == 10 & prtvtebe == 5) ~ 1,
+      (essround == 10 & prtvtbhr == 5) ~ 1,
+      (essround == 10 & prtvtecz == 1) ~ 1,
+      (essround == 10 & prtclffi == 18) ~ 1,
+      (essround == 10 & prtvtefr == 3) ~ 1,
+      (essround == 10 & prtvtghu == 9) ~ 1,
+      (essround == 10 & prtvtdie %in% c(8,11)) ~ 1,
+      (essround == 10 & prtvtdgr %in% c(6, 2, 4)) ~ 1,
+      (essround == 10 & prtvthnl == 4) ~ 1,
+      (essround == 10 & prtvtdpt %in% c(12, 2)) ~ 1,
+      (essround == 10 & prtvtfsi == 2) ~ 1,
+      (essround == 10 & prtvthch == 12) ~ 1,
+      
+      # Wave 9
+      (essround == 9 & prtvtcat == 6) ~ 1,
+      (essround == 9 & prtvtdbe == 6) ~ 1,
+      (essround == 9 & prtvtecz == 1) ~ 1,
+      (essround == 9 & prtvtddk == 9) ~ 1,
+      (essround == 9 & prtvtees %in% c(6, 4)) ~ 1,
+      (essround == 9 & prtvtdfi == 12) ~ 1,
+      (essround == 9 & prtvtdfr == 3) ~ 1,
+      (essround == 9 & prtvede1 == 3) ~ 1,
+      (essround == 9 & prtvtfhu == 8) ~ 1,
+      (essround == 9 & prtvtalv == 1) ~ 1,
+      (essround == 9 & prtvtgnl == 4) ~ 1,
+      (essround == 9 & prtvtdpl == 7) ~ 1,
+      (essround == 9 & prtvtcpt %in% c(3, 2)) ~ 1,
+      (essround == 9 & prtvtcse == 7) ~ 1,
+      (essround == 9 & prtvtgch == 13) ~ 1,
+      
+      # Default
+      TRUE ~ 0
+    )
+  )
+
+ess_combined1 <- ess_combined1 |>
+  group_by(cntry) |>
+  filter(any(vote_left == 1)) |>
+  ungroup()
+
+ess_combined1 <- ess_combined1 |>
+  select (cntry, essround, gndr, agea, hinctnta, eduyrs, vote_left, religion, 
+          redistribution, imueclt, equality, trstplt, trstprt, trstlgl, trstplc,
+          trstep, trstun, trstprl, domicil, ideology, trust, stfeco, stfgov
+          )
+
+western_countries <- c("AT", "BE", "DE", "DK", "FI", "FR", "IE", "NL", "PT", "SE")
+eastern_countries <- c("CY", "CZ", "HU", "LV", "GR", "CH")
+
+ess_combined1 <- ess_combined1 |>
+  mutate(east = ifelse(cntry %in% eastern_countries, 1, 0))
+
+```
+
+## Visualizing the dependent variable
+
+```{r}
+library(ggplot2)
+library(ggthemes)
+
+(plot <- ess_combined1 |>
+  group_by(cntry) |>
+  summarize(prop_vote_left_1 = mean(vote_left == 1, na.rm = TRUE), .groups = "drop") |>
+  ggplot(aes(x = cntry, y = prop_vote_left_1)) + 
+  geom_bar(stat = "identity") +
+  labs(
+    x = "Country",
+    y = "Proportion of Vote Left = 1",
+    fill = "Region"
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+   theme_classic())
+
+ggsave("vote_left_by_country_combined.jpeg", plot, width = 8, height = 6)
+
+```
+
+# Fitting the models
+
+```{r}
+library(lme4)
+
+ess_combined1$essround <- factor(ess_combined1$essround)
+ess_combined1$cntry <- factor(ess_combined1$cntry)
+
+
+# this is a model with no fixed effects
+model_free <-  glm(vote_left ~  
+                     gndr + agea + hinctnta + eduyrs + religion + domicil + east +
+                     ideology + trust + stfgov + stfeco, 
+                   data= ess_combined1, 
+                   family = binomial)
+
+# this is a model with wave fixed effects 
+model_wavefixed <-  glm(vote_left ~  
+                     gndr + agea + hinctnta + eduyrs + religion + domicil + east +
+                     ideology + trust + stfgov + stfeco + essround, 
+                   data= ess_combined1, 
+                   family = binomial)
+
+# this is a model with wave and country fixed effects
+model_bothfixed <- glm(vote_left ~  
+                     gndr + agea + hinctnta + eduyrs + religion + domicil + east +
+                     ideology + trust + stfgov + stfeco + essround + cntry, 
+                   data= ess_combined1, 
+                   family = binomial)
+
+# this is a model with mixed effects
+model_mixedeffects <- glmer(vote_left ~  
+                     gndr + agea + hinctnta + eduyrs + religion + domicil + east +
+                     ideology + trust + stfgov + stfeco + essround + (1|cntry), 
+                   data= ess_combined1, 
+                   family = binomial)
+
+# model_mixedeffects_separate <- glmer(vote_left ~  
+                    # gndr + agea + hinctnta + eduyrs + religion + domicil + east +
+                     #redistribution + imueclt +  equality + trstplt + trstprt + 
+                      # trstlgl + trstplc + trstep + trstun + trstprl + 
+                       #stfgov + stfeco + essround + (1|cntry), 
+                 #  data= ess_combined1, 
+                  # family = binomial)
+
+summary(model_mixedeffects)
+```
+
+## Visualizing and interpreting
+
+```{r}
+library(patchwork)
+library(stargazer)
+library(sjPlot)
+library(ggplot2)
+
+
+# Visualizing the model
+stargazer(model_mixedeffects, type = "text", out = "final_mixedeffects_regression.html")
+
+plot_ideology <- plot_model(model_mixedeffects, type = "pred", terms = "ideology[all]") +
+    labs(title = "Ideology",
+         x = "Ideology",
+         y = "Predicted Probability")
+
+plot_trust <- plot_model(model_mixedeffects, type = "pred", terms = "trust[all]") +
+    labs(title = "Trust",
+         x = "Trust",
+         y = "Predicted Probability")
+
+plot_stfgov <- plot_model(model_mixedeffects, type = "pred", terms = "stfgov") +
+    labs(title = "Satisfaction with Government",
+         x = "Satisfaction with government",
+         y = "Predicted Probability")
+
+plot_stfeco <- plot_model(model_mixedeffects, type = "pred", terms = "stfeco") +
+    labs(title = "Satisfaction with the Economy",
+         x = "Satisfaction with the economy",
+         y = "Predicted Probability")
+
+
+combined_plot <- (plot_ideology + plot_trust) / (plot_stfgov + plot_stfeco)
+
+ggsave("combined_predicted.jpeg", combined_plot, width = 8, height = 6)
+
+print(combined_plot)
+```
+
+# ROBUSTNESS TESTS
+
+```{r}
+library(car)
+library(modelsummary)
+library(tidyr)
+
+
+# Multicolinearity
+
+vif_values <- vif(model_mixedeffects)
+
+stargazer(vif_values, type = "latex", summary = FALSE, title = "Variance Inflation Factor (VIF)")
+
+# All models
+stargazer(model_mixedeffects, model_bothfixed, model_wavefixed, type = "latex",
+          dep.var.labels = "Vote for Radical Left",
+          covariate.labels = c("Gender", "Age", "Income", "Education", "Religiousness", 
+                               "Rural", "East", "Ideology", "Trust", 
+                               "Political Satisfaction", "Economic Satisfaction"),
+          model.names = FALSE,
+          omit = c("cntry", "essround"),
+          add.lines = list(
+            c("Country Fixed Effects", "NO", "YES", "NO"),
+            c("Wave Fixed Effects", "YES", "YES", "YES")
+          ))
+
+```
